@@ -94,19 +94,22 @@ straight cs = let nums = map fst cs
 fullHouse :: [Card] -> Maybe (Int, Int)
 fullHouse cs = pure (,) <*> threeKind cs <*> onePair cs
 
-straightFlush :: [Card] -> Maybe Int
-straightFlush cs = flush cs >> straight cs
-
 fourKind :: [Card] -> Maybe Int
 fourKind = getGrp 1 4
 
+straightFlush :: [Card] -> Maybe Int
+straightFlush cs = flush cs >> straight cs
+
 -- TODO:
--- royalFlush :: ???
+royalFlush :: [Card] -> Maybe ()
+royalFlush cs = let nums = map fst cs
+                    expected = 60 -- Expect 10 - Ace (J = 11, Q = 12, K = 13, A = 14)
+                    numsSatisfied = if sum nums /= expected
+                                      then Nothing
+                                      else Just ()
+                in flush cs >> numsSatisfied
 
 --- helpers --
-
--- sumOfSeq :: Int -> Int -> Int
--- sumOfSeq n start = n * (2 * start + n - 1) `quot` 2
 
 -- If no group found, returns Nothing
 -- Otherwise returns the highest number in any of the groups
