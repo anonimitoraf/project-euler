@@ -65,24 +65,48 @@ main = print "54.hs"
 
 -- solve :: Int 
 
-getHighestCard :: [Card] -> Int
-getHighestCard = fst . maximumBy cmpVal
+highestCard :: [Card] -> Int
+highestCard = fst . maximumBy cmpVal
 
-getOnePair :: [Card] -> Maybe Int
-getOnePair = getGrp 1 2
+onePair :: [Card] -> Maybe Int
+onePair = getGrp 1 2
 
-getTwoPairs :: [Card] -> Maybe Int
-getTwoPairs = getGrp 2 2
+twoPairs :: [Card] -> Maybe Int
+twoPairs = getGrp 2 2
 
-getThreeKind :: [Card] -> Maybe Int
-getThreeKind = getGrp 1 3
+threeKind :: [Card] -> Maybe Int
+threeKind = getGrp 1 3
 
-getFlush :: [Card] -> Maybe ()
-getFlush cs = if (not . sameSuit) cs
-              then Nothing
-              else Just ()
+flush :: [Card] -> Maybe ()
+flush cs = if (not . sameSuit) cs
+             then Nothing
+             else Just ()
 
----
+-- Return highest num value
+straight :: [Card] -> Maybe Int
+straight cs = let nums = map fst cs
+                  minNum = minimum nums
+                  expected = sum [minNum .. minNum + 4]
+              in  if sum nums /= expected
+                    then Nothing
+                    else Just $ maximum nums
+
+fullHouse :: [Card] -> Maybe (Int, Int)
+fullHouse cs = pure (,) <*> threeKind cs <*> onePair cs
+
+straightFlush :: [Card] -> Maybe Int
+straightFlush cs = flush cs >> straight cs
+
+fourKind :: [Card] -> Maybe Int
+fourKind = getGrp 1 4
+
+-- TODO:
+-- royalFlush :: ???
+
+--- helpers --
+
+-- sumOfSeq :: Int -> Int -> Int
+-- sumOfSeq n start = n * (2 * start + n - 1) `quot` 2
 
 -- If no group found, returns Nothing
 -- Otherwise returns the highest number in any of the groups
