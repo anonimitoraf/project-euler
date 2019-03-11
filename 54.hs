@@ -1,19 +1,21 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
+import Control.Monad ( liftM2 )
 import Control.Applicative ( (<|>) )
 import Data.Ord ( comparing )
-import Data.List  ( sort, sortBy , minimumBy, maximumBy , groupBy, partition )
+import Data.List  ( sort, sortBy, maximumBy , groupBy, partition )
 
 main :: IO ()
-main = print "54.hs"
+main = print testFunc
 
 data Hand = Hand {
+  hcVal::Int,
   opVal::Maybe Int,
-  tpVal::Maybe Int,
+  tpVal::Maybe (Int, Int),
   tkVal::Maybe Int,
    sVal::Maybe Int,
    fVal::Maybe Int,
-  fhVal::Maybe Int,
+  fhVal::Maybe (Int, Int),
   fkVal::Maybe Int,
   sfVal::Maybe Int,
   rfVal::Bool
@@ -32,9 +34,10 @@ returnp cs = (cs, blankHand)
   in  (cs', hMerged)
 
 calcNewHand :: Hand -> Hand -> Hand
-calcNewHand (Hand op tp tk s f fh fk sf rf) 
-            (Hand op2 tp2 tk2 s2 f2 fh2 fk2 sf2 rf2)
-            = Hand (op <|> op2)
+calcNewHand (Hand hc op tp tk s f fh fk sf rf) 
+            (Hand hc2 op2 tp2 tk2 s2 f2 fh2 fk2 sf2 rf2)
+            = Hand (if hc < hc2 then hc2 else hc)
+                   (op <|> op2)
                    (tp <|> tp2)
                    (tk <|> tk2)
                    (s <|> s2)
@@ -46,9 +49,15 @@ calcNewHand (Hand op tp tk s f fh fk sf rf)
 
 testFunc :: PokerHand
 testFunc =
-  -- let testCards = [(2, 'D'), (3, 'D'), (2, 'H'), (3, 'S'), (3, 'C')]
-  -- let testCards = [(2, 'D'), (3, 'D'), (4, 'H'), (5, 'S'), (6, 'C')] -- straight
-  let testCards = [(2, 'D'), (3, 'D'), (4, 'D'), (5, 'D'), (6, 'D')] -- straight flush
+  let testCards = [(10, 'D'), (11, 'D'), (12, 'D'), (13, 'D'), (14, 'D')] -- royalFlush
+  -- let testCards = [(2, 'D'), (3, 'D'), (4, 'D'), (5, 'D'), (6, 'D')] -- straightFlush 6
+  -- let testCards = [(2, 'D'), (2, 'H'), (6, 'D'), (2, 'D'), (2, 'D')] -- fourKind 2
+  -- let testCards = [(2, 'D'), (2, 'H'), (6, 'D'), (2, 'D'), (6, 'D')] -- fullHouse 6
+  -- let testCards = [(2, 'D'), (4, 'D'), (5, 'D'), (6, 'D'), (7, 'D')] -- flush 7
+  -- let testCards = [(2, 'D'), (3, 'D'), (4, 'H'), (5, 'S'), (6, 'C')] -- straight 6
+  -- let testCards = [(8, 'D'), (4, 'C'), (4, 'D'), (7, 'C'), (4, 'D')] -- threeKind 4
+  -- let testCards = [(8, 'D'), (9, 'C'), (9, 'D'), (2, 'C'), (8, 'D')] -- twoPairs 9
+  -- let testCards = [(8, 'D'), (9, 'C'), (9, 'D'), (2, 'C'), (7, 'D')] -- onePair 9
   in returnp testCards
         >>~ royalFlush
         >>~ straightFlush
@@ -59,21 +68,24 @@ testFunc =
         >>~ threeKind
         >>~ twoPairs
         >>~ onePair
+        >>~ highestCard
 
 blankHand :: Hand
-blankHand = Hand Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing False
+blankHand = Hand (-1) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing False
 
 onePair :: [Card] -> PokerHand
-onePair cs = (rcs, h) where (rcs, highestGrpNum) = getGrp 1 2 cs
-                            h = blankHand { opVal = highestGrpNum }
+onePair cs = (cs, blankHand { opVal = getGrp 1 2 cs })
 
 twoPairs :: [Card] -> PokerHand
-twoPairs cs = (rcs, h) where (rcs, highestGrpNum) = getGrp 2 2 cs
-                             h = blankHand { tpVal = highestGrpNum }
+twoPairs cs = let maybeFstGrpNum = getGrp 1 2 cs
+                  updatedCs = case maybeFstGrpNum of
+                                   Nothing -> cs
+                                   Just fstGrpNum -> removeFirstNBy (\c -> fst c == fstGrpNum) 2 cs
+                  maybeSndGrpNum = getGrp 1 2 updatedCs
+              in (cs, blankHand { tpVal = liftM2 (,) maybeFstGrpNum maybeSndGrpNum })
 
 threeKind :: [Card] -> PokerHand
-threeKind cs = (rcs, h) where (rcs, highestGrpNum) = getGrp 1 3 cs
-                              h = blankHand { tkVal = highestGrpNum }
+threeKind cs = (cs, blankHand { tkVal = getGrp 1 3 cs })
 
 straight :: [Card] -> PokerHand
 straight [] = ([], blankHand)
@@ -90,14 +102,15 @@ flush cs = case sameSuit cs of
                 False -> (cs, blankHand)
 
 fullHouse :: [Card] -> PokerHand
-fullHouse cs = returnp cs >>~ threeKind >>~ twoPairs
+fullHouse cs = let (cs', Hand { tkVal = tk, opVal = op }) = returnp cs >>~ threeKind >>~ onePair
+               in (cs', blankHand { fhVal = (,) <$> tk <*> op })
 
 fourKind :: [Card] -> PokerHand
-fourKind cs = (rcs, h) where (rcs, highestGrpNum) = getGrp 1 4 cs
-                             h = blankHand { fkVal = highestGrpNum }
+fourKind cs = (cs, blankHand { fkVal = getGrp 1 4 cs })
 
 straightFlush :: [Card] -> PokerHand
-straightFlush cs = returnp cs >>~ flush >>~ straight
+straightFlush cs = let (cs', Hand { fVal = f, sVal = s }) = returnp cs >>~ flush >>~ straight
+                   in (cs', blankHand { sfVal = s >> f })
 
 royalFlush :: [Card] -> PokerHand
 royalFlush cs =
@@ -106,30 +119,25 @@ royalFlush cs =
       criteriaMet = minNum == 10 && isSequential nums && sameSuit cs
   in (cs, blankHand { rfVal = criteriaMet })
 
+highestCard :: [Card] -> PokerHand
+highestCard cs = (cs, blankHand { hcVal = highestVal cs })
+
 --- Helpers ---
 
-getGrp :: Int -> Int -> [Card] -> ([Card], Maybe Int)
+getGrp :: Int -> Int -> [Card] -> Maybe Int
 getGrp occ sz cs =
   let revSortedCs = sortBy (flip cmpNumOrd) cs
       groupedByNum    = groupBy cmpNum revSortedCs
       -- validGrps is sorted desc (due to revSortedCs being sorted already)
-      (validGrps, invalidGrps) = partition (\g -> length g >= sz) groupedByNum
-      -- In the event of 2 pairs, we'd want to consume the pair
-      -- with the highest value first, e.g. given a pair of 4
-      -- and of 2, we want to consume the pair of 4 first
+      validGrps = filter (\g -> length g >= sz) groupedByNum
   in  if length validGrps < occ
-  -- Does not meet occurrence quota, no cards consumed
-        then (cs, Nothing)
+        then Nothing
         else
           let highestGrpNum =
                 if (null validGrps) || (null $ head validGrps)
                   then Nothing
                   else Just (fst . head . head $ validGrps)
-              (grpsToConsumeFrom, grpsIgnored) = splitAt occ validGrps
-              -- Only consume the first <sz> cards from the first <occ> groups
-              grpsConsumed = map (drop sz) grpsToConsumeFrom
-              remainingCards = (mconcat grpsConsumed) ++ mconcat (grpsIgnored) ++ (mconcat invalidGrps)
-          in  (remainingCards, highestGrpNum)
+          in  highestGrpNum
 
 sameSuit :: [Card] -> Bool
 sameSuit [] = True
@@ -153,18 +161,25 @@ isSequential xs = let minNum = minimum xs
                       indexedNums = zip [0..] $ sort xs
                   in all (\x -> snd x - fst x == minNum) indexedNums
 
+removeFirstNBy :: (a -> Bool) -> Int -> [a] -> [a]
+removeFirstNBy _ 0 xs = xs
+removeFirstNBy f n xs = let (validYs, invalidYs) = partition f xs
+                            remainingYs = drop n validYs
+                        in remainingYs ++ invalidYs
+
 instance Show Hand where
-  show (Hand op tp tk s f fh fk sf rf) = 
+  show (Hand hc op tp tk s f fh fk sf rf) = 
     "\n" ++
-    "rf = " ++ show rf ++ "\n" ++
-    "sf = " ++ show sf ++ "\n" ++
-    "fk = " ++ show fk ++ "\n" ++
-    "fh = " ++ show fh ++ "\n" ++
-    " f = " ++ show f ++ "\n" ++
-    " s = " ++ show s ++ "\n" ++
-    "tk = " ++ show tk ++ "\n" ++
-    "tp = " ++ show tp ++ "\n" ++
-    "op = " ++ show op ++ "\n"
+    "royal flush    = " ++ show rf ++ "\n" ++
+    "straight flush = " ++ show sf ++ "\n" ++
+    "four kind      = " ++ show fk ++ "\n" ++
+    "full house     = " ++ show fh ++ "\n" ++
+    "flush          = " ++ show f ++ "\n" ++
+    "straight       = " ++ show s ++ "\n" ++
+    "three kind     = " ++ show tk ++ "\n" ++
+    "two pairs      = " ++ show tp ++ "\n" ++
+    "one pair       = " ++ show op ++ "\n" ++
+    "highest card   = " ++ show hc
 
 -- QUESTION:
 
