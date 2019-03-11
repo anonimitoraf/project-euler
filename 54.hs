@@ -2,7 +2,7 @@
 
 import Control.Applicative ( (<|>) )
 import Data.Ord ( comparing )
-import Data.List  ( sortBy , maximumBy , groupBy)
+import Data.List  ( sort, sortBy , minimumBy, maximumBy , groupBy, partition )
 
 main :: IO ()
 main = print "54.hs"
@@ -32,16 +32,33 @@ returnp cs = (cs, blankHand)
   in  (cs', hMerged)
 
 calcNewHand :: Hand -> Hand -> Hand
-calcNewHand (Hand op tp tk s f fh fk sf rf) (Hand op2 tp2 tk2 s2 f2 fh2 fk2 sf2 rf2)
-  = Hand (op <|> op2)
-         (tp <|> tp2)
-         (tk <|> tk2)
-         (s <|> s2)
-         (f <|> f2)
-         (fh <|> fh2)
-         (fk <|> fk2)
-         (sf <|> sf2)
-         (rf || rf2)
+calcNewHand (Hand op tp tk s f fh fk sf rf) 
+            (Hand op2 tp2 tk2 s2 f2 fh2 fk2 sf2 rf2)
+            = Hand (op <|> op2)
+                   (tp <|> tp2)
+                   (tk <|> tk2)
+                   (s <|> s2)
+                   (f <|> f2)
+                   (fh <|> fh2)
+                   (fk <|> fk2)
+                   (sf <|> sf2)
+                   (rf || rf2)
+
+testFunc :: PokerHand
+testFunc =
+  -- let testCards = [(2, 'D'), (3, 'D'), (2, 'H'), (3, 'S'), (3, 'C')]
+  -- let testCards = [(2, 'D'), (3, 'D'), (4, 'H'), (5, 'S'), (6, 'C')] -- straight
+  let testCards = [(2, 'D'), (3, 'D'), (4, 'D'), (5, 'D'), (6, 'D')] -- straight flush
+  in returnp testCards
+        >>~ royalFlush
+        >>~ straightFlush
+        >>~ fourKind
+        >>~ fullHouse
+        >>~ flush
+        >>~ straight
+        >>~ threeKind
+        >>~ twoPairs
+        >>~ onePair
 
 blankHand :: Hand
 blankHand = Hand Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing False
@@ -59,18 +76,18 @@ threeKind cs = (rcs, h) where (rcs, highestGrpNum) = getGrp 1 3 cs
                               h = blankHand { tkVal = highestGrpNum }
 
 straight :: [Card] -> PokerHand
+straight [] = ([], blankHand)
 straight cs =
-  let nums     = map fst cs
-      minNum   = minimum nums
-      expected = sum [minNum .. minNum + 4]
-  in case sum nums /= expected of 
-          True -> ([], blankHand { sVal = Just $ highestVal cs })
-          False -> (cs, blankHand { sVal = Nothing })
+  let nums = map fst cs
+  in case isSequential nums of
+          True -> (cs, blankHand { sVal = Just $ highestVal cs })
+          False -> (cs, blankHand)
 
 flush :: [Card] -> PokerHand
+flush [] = ([], blankHand)
 flush cs = case sameSuit cs of
-                True -> ([], blankHand { fVal = Just $ highestVal cs })
-                False -> (cs, blankHand { fVal = Nothing })
+                True -> (cs, blankHand { fVal = Just $ highestVal cs })
+                False -> (cs, blankHand)
 
 fullHouse :: [Card] -> PokerHand
 fullHouse cs = returnp cs >>~ threeKind >>~ twoPairs
@@ -84,34 +101,34 @@ straightFlush cs = returnp cs >>~ flush >>~ straight
 
 royalFlush :: [Card] -> PokerHand
 royalFlush cs =
-  let actual = sum . (map fst) $ cs
-      expected = sum [10, 11, 12, 13, 14]
-      criteriaMet = actual /= expected && sameSuit cs
-      rcs = if criteriaMet then [] else cs
-  in (rcs, blankHand { rfVal = criteriaMet })
+  let nums = map fst cs
+      minNum = minimum nums 
+      criteriaMet = minNum == 10 && isSequential nums && sameSuit cs
+  in (cs, blankHand { rfVal = criteriaMet })
 
 --- Helpers ---
 
 getGrp :: Int -> Int -> [Card] -> ([Card], Maybe Int)
 getGrp occ sz cs =
-  let groupedByNum    = groupBy cmpNum cs
-      validGrps       = filter (\g -> length g >= sz) groupedByNum
+  let revSortedCs = sortBy (flip cmpNumOrd) cs
+      groupedByNum    = groupBy cmpNum revSortedCs
+      -- validGrps is sorted desc (due to revSortedCs being sorted already)
+      (validGrps, invalidGrps) = partition (\g -> length g >= sz) groupedByNum
       -- In the event of 2 pairs, we'd want to consume the pair
       -- with the highest value first, e.g. given a pair of 4
       -- and of 2, we want to consume the pair of 4 first
-      validGrpsSorted = sortBy cmpGrp validGrps
-  in  if length validGrpsSorted < occ
+  in  if length validGrps < occ
   -- Does not meet occurrence quota, no cards consumed
         then (cs, Nothing)
         else
           let highestGrpNum =
-                if (null validGrpsSorted) || (null $ head validGrpsSorted)
+                if (null validGrps) || (null $ head validGrps)
                   then Nothing
-                  else Just (fst . head . head $ validGrpsSorted)
-              (grpsToConsumeFrom, grpsIgnored) = splitAt occ validGrpsSorted
+                  else Just (fst . head . head $ validGrps)
+              (grpsToConsumeFrom, grpsIgnored) = splitAt occ validGrps
               -- Only consume the first <sz> cards from the first <occ> groups
               grpsConsumed = map (drop sz) grpsToConsumeFrom
-              remainingCards = (mconcat grpsConsumed) ++ mconcat (grpsIgnored)
+              remainingCards = (mconcat grpsConsumed) ++ mconcat (grpsIgnored) ++ (mconcat invalidGrps)
           in  (remainingCards, highestGrpNum)
 
 sameSuit :: [Card] -> Bool
@@ -122,26 +139,47 @@ cmpNum :: Card -> Card -> Bool
 cmpNum a b = fst a == fst b
 
 cmpGrp :: [Card] -> [Card] -> Ordering
-cmpGrp as bs = cmpVal (head as) (head bs)
+cmpGrp as bs = cmpNumOrd (head as) (head bs)
 
-cmpVal :: Card -> Card -> Ordering
-cmpVal = comparing fst
+cmpNumOrd :: Card -> Card -> Ordering
+cmpNumOrd = comparing fst
 
 highestVal :: [Card] -> Int
-highestVal = fst . maximumBy cmpVal
+highestVal = fst . maximumBy cmpNumOrd
+
+isSequential :: [Int] -> Bool
+isSequential [] = True
+isSequential xs = let minNum = minimum xs
+                      indexedNums = zip [0..] $ sort xs
+                  in all (\x -> snd x - fst x == minNum) indexedNums
+
+instance Show Hand where
+  show (Hand op tp tk s f fh fk sf rf) = 
+    "\n" ++
+    "rf = " ++ show rf ++ "\n" ++
+    "sf = " ++ show sf ++ "\n" ++
+    "fk = " ++ show fk ++ "\n" ++
+    "fh = " ++ show fh ++ "\n" ++
+    " f = " ++ show f ++ "\n" ++
+    " s = " ++ show s ++ "\n" ++
+    "tk = " ++ show tk ++ "\n" ++
+    "tp = " ++ show tp ++ "\n" ++
+    "op = " ++ show op ++ "\n"
+
+-- QUESTION:
 
 -- In the card game poker, a hand consists of five cards and are ranked, from lowest to highest, in the following way:
 
--- High Card: Highest value card.
--- One Pair: Two cards of the same value.
--- Two Pairs: Two different pairs.
--- Three of a Kind: Three cards of the same value.
--- Straight: All cards are consecutive values.
--- Flush: All cards of the same suit.
--- Full House: Three of a kind and a pair.
--- Four of a Kind: Four cards of the same value.
--- Straight Flush: All cards are consecutive values of same suit.
 -- Royal Flush: Ten, Jack, Queen, King, Ace, in same suit.
+-- Straight Flush: All cards are consecutive values of same suit.
+-- Four of a Kind: Four cards of the same value.
+-- Full House: Three of a kind and a pair.
+-- Flush: All cards of the same suit.
+-- Straight: All cards are consecutive values.
+-- Three of a Kind: Three cards of the same value.
+-- Two Pairs: Two different pairs.
+-- One Pair: Two cards of the same value.
+-- High Card: Highest value card.
 
 -- The cards are valued in the order:
 -- 2, 3, 4, 5, 6, 7, 8, 9, 10, Jack, Queen, King, Ace.
