@@ -1,12 +1,18 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
-import Control.Monad ( liftM2 )
-import Control.Applicative ( (<|>) )
-import Data.Ord ( comparing )
-import Data.List  ( sort, sortBy, maximumBy , groupBy, partition )
-
-main :: IO ()
-main = print testFunc
+import           Control.Monad                  ( liftM2 )
+import           Control.Applicative            ( (<|>) )
+import           Data.Ord                       ( comparing )
+import           Data.List                      ( sort
+                                                , sortBy
+                                                , maximumBy
+                                                , groupBy
+                                                , partition
+                                                )
+import           Data.Char                      ( intToDigit
+                                                , digitToInt
+                                                )
+import           Control.Arrow                  ( (***) )
 
 data Hand = Hand {
   hcVal::Int,
@@ -21,8 +27,43 @@ data Hand = Hand {
   rfVal::Bool
 }
 
+type NonNormalizedCard = (Char, Char)
 type Card = (Int, Char)
 type PokerHand = ([Card], Hand)
+type Versus a = (a, a)
+
+data Winner = Player1 | Player2
+instance Show Winner where
+  show Player1 = "Player 1"
+  show Player2 = "Player 2"
+
+handCardCount = 5
+
+main :: IO ()
+main = do input <- readFile "p054_poker.txt"
+          let nonNormalizedCards = inputToCards input
+              cards :: [Versus [Card]] = map (map normalizeCard *** map normalizeCard) nonNormalizedCards
+              cardsToHand = snd . evalCards
+              hands :: [Versus Hand] =  map (cardsToHand *** cardsToHand) cards
+              winners :: [Winner] = map (uncurry evalHands) hands
+          print winners
+
+toCardDraw :: [String] -> [NonNormalizedCard]
+toCardDraw = map toCard where toCard s = (head s, s !! 1)
+
+inputToCards :: String -> [Versus [NonNormalizedCard]]
+inputToCards s = let cardStrGrps :: [[String]] = chunksOf (handCardCount * 2) . words $ s
+                     player1Cards :: [[NonNormalizedCard]] = map (toCardDraw . take handCardCount) cardStrGrps
+                     player2Cards :: [[NonNormalizedCard]] = map (toCardDraw . take handCardCount) cardStrGrps
+                 in zip player1Cards player2Cards
+
+normalizeCard :: NonNormalizedCard -> Card
+normalizeCard ('T', s) = (10, s)
+normalizeCard ('J', s) = (11, s)
+normalizeCard ('Q', s) = (12, s)
+normalizeCard ('K', s) = (13, s)
+normalizeCard ('A', s) = (14, s)
+normalizeCard (i, s) = (digitToInt i, s)
 
 returnp :: [Card] -> PokerHand
 returnp cs = (cs, blankHand)
@@ -34,7 +75,7 @@ returnp cs = (cs, blankHand)
   in  (cs', hMerged)
 
 calcNewHand :: Hand -> Hand -> Hand
-calcNewHand (Hand hc op tp tk s f fh fk sf rf) 
+calcNewHand (Hand hc op tp tk s f fh fk sf rf)
             (Hand hc2 op2 tp2 tk2 s2 f2 fh2 fk2 sf2 rf2)
             = Hand (if hc < hc2 then hc2 else hc)
                    (op <|> op2)
@@ -47,28 +88,20 @@ calcNewHand (Hand hc op tp tk s f fh fk sf rf)
                    (sf <|> sf2)
                    (rf || rf2)
 
-testFunc :: PokerHand
-testFunc =
-  let testCards = [(10, 'D'), (11, 'D'), (12, 'D'), (13, 'D'), (14, 'D')] -- royalFlush
-  -- let testCards = [(2, 'D'), (3, 'D'), (4, 'D'), (5, 'D'), (6, 'D')] -- straightFlush 6
-  -- let testCards = [(2, 'D'), (2, 'H'), (6, 'D'), (2, 'D'), (2, 'D')] -- fourKind 2
-  -- let testCards = [(2, 'D'), (2, 'H'), (6, 'D'), (2, 'D'), (6, 'D')] -- fullHouse 6
-  -- let testCards = [(2, 'D'), (4, 'D'), (5, 'D'), (6, 'D'), (7, 'D')] -- flush 7
-  -- let testCards = [(2, 'D'), (3, 'D'), (4, 'H'), (5, 'S'), (6, 'C')] -- straight 6
-  -- let testCards = [(8, 'D'), (4, 'C'), (4, 'D'), (7, 'C'), (4, 'D')] -- threeKind 4
-  -- let testCards = [(8, 'D'), (9, 'C'), (9, 'D'), (2, 'C'), (8, 'D')] -- twoPairs 9
-  -- let testCards = [(8, 'D'), (9, 'C'), (9, 'D'), (2, 'C'), (7, 'D')] -- onePair 9
-  in returnp testCards
-        >>~ royalFlush
-        >>~ straightFlush
-        >>~ fourKind
-        >>~ fullHouse
-        >>~ flush
-        >>~ straight
-        >>~ threeKind
-        >>~ twoPairs
-        >>~ onePair
-        >>~ highestCard
+evalHands :: Hand -> Hand -> Winner
+evalHands _ _ = Player1
+
+evalCards :: [Card] -> PokerHand
+evalCards cs = returnp cs >>~ royalFlush
+                          >>~ straightFlush
+                          >>~ fourKind
+                          >>~ fullHouse
+                          >>~ flush
+                          >>~ straight
+                          >>~ threeKind
+                          >>~ twoPairs
+                          >>~ onePair
+                          >>~ highestCard
 
 blankHand :: Hand
 blankHand = Hand (-1) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing False
@@ -115,7 +148,7 @@ straightFlush cs = let (cs', Hand { fVal = f, sVal = s }) = returnp cs >>~ flush
 royalFlush :: [Card] -> PokerHand
 royalFlush cs =
   let nums = map fst cs
-      minNum = minimum nums 
+      minNum = minimum nums
       criteriaMet = minNum == 10 && isSequential nums && sameSuit cs
   in (cs, blankHand { rfVal = criteriaMet })
 
@@ -167,8 +200,12 @@ removeFirstNBy f n xs = let (validYs, invalidYs) = partition f xs
                             remainingYs = drop n validYs
                         in remainingYs ++ invalidYs
 
+chunksOf :: Int -> [a] -> [[a]]
+chunksOf _ [] = []
+chunksOf n xs = take n xs : chunksOf n (drop n xs)
+
 instance Show Hand where
-  show (Hand hc op tp tk s f fh fk sf rf) = 
+  show (Hand hc op tp tk s f fh fk sf rf) =
     "\n" ++
     "royal flush    = " ++ show rf ++ "\n" ++
     "straight flush = " ++ show sf ++ "\n" ++

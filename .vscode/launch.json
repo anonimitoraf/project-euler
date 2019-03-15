@@ -19,7 +19,7 @@
       "logFile": "${workspaceRoot}/.vscode/phoityne.log",
       "logLevel": "INFO",
       "startup": "/home/anonimito/programming/haskell/project-euler/54.hs",
-      "startupFunc": "testFunc",
+      "startupFunc": "main",
       "startupArgs": ""
     }
   ]
