@@ -54,20 +54,22 @@ evalMaybeIntTups (Just (a, a2))
                                                        | a2 < b2 -> Just Player2
                                                        | otherwise -> Nothing
 
-getGrp :: Int -> Int -> [Card] -> Maybe Int
-getGrp occ sz cs =
+getGrp :: Bool -> Int -> Int -> [Card] -> ([Card], Maybe Int)
+getGrp willConsume occ sz cs =
   let revSortedCs = sortBy (flip cmpNum) cs
-      groupedByNum    = groupBy eqNum revSortedCs
+      groupedByNum = groupBy eqNum revSortedCs
       -- validGrps is sorted desc (due to revSortedCs being sorted already)
-      validGrps = filter (\g -> length g >= sz) groupedByNum
+      (validGrps, invalidGrps) = partition (\g -> length g >= sz) groupedByNum
   in  if length validGrps < occ
-        then Nothing
-        else
-          let highestGrpNum =
-                if (null validGrps) || (null $ head validGrps)
-                  then Nothing
-                  else Just (fst . head . head $ validGrps)
-          in  highestGrpNum
+        then (cs, Nothing)
+        else let highestGrpNum = if (null validGrps) || (null $ head validGrps)
+                                 then Nothing
+                                 else Just (fst . head . head $ validGrps)
+                 validGrpsConsumed = map (drop sz) (take occ validGrps) ++ (drop occ validGrps)
+                 remainingCards = if not willConsume
+                                  then cs
+                                  else mconcat $ validGrpsConsumed ++ invalidGrps
+             in  (remainingCards, highestGrpNum)
 
 sameSuit :: [Card] -> Bool
 sameSuit [] = True

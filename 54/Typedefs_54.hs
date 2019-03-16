@@ -1,5 +1,6 @@
 module Typedefs_54 (
-    Hand (..)
+    ConsumeCards
+  , Hand (..)
   , NonNormalizedCard
   , Card
   , PokerHand
@@ -38,6 +39,7 @@ type NonNormalizedCard = (Char, Char)
 type Card = (Int, Char)
 type PokerHand = ([Card], Hand)
 type Versus a = (a, a)
+type ConsumeCards = Bool
 
 data Winner = Player1 | Player2
 

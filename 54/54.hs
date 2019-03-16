@@ -2,7 +2,6 @@
 
 import           Control.Arrow                  ( (***) )
 import           Control.Applicative            ( (<|>) )
-import           Control.Monad                  ( liftM2 )
 import           Data.Char                      ( digitToInt )
 import           Data.Monoid                    ( First(..) )
 import           Data.Maybe                     ( catMaybes )
@@ -21,7 +20,7 @@ main = do input <- readFile "input.txt"
 
 -- Input processing
 toCardDraw :: [String] -> [NonNormalizedCard]
-toCardDraw = map toCard where toCard s = (head s, s !! 1)
+toCardDraw = map (\s -> (head s, s !! 1))
 
 inputToCards :: String -> [Versus [NonNormalizedCard]]
 inputToCards s = let handCardCount = 5
@@ -63,15 +62,16 @@ calcNewHand (Hand hc  op  tp  tk  s  f  fh  fk  sf  rf )
                    (rf || rf')
 
 evalCards :: [Card] -> PokerHand
-evalCards cs = returnp cs >>~ royalFlush
+evalCards cs = returnp cs 
+                          >>~ royalFlush
                           >>~ straightFlush
-                          >>~ fourKind
+                          >>~ fourKind False
                           >>~ fullHouse
                           >>~ flush
                           >>~ straight
-                          >>~ threeKind
-                          >>~ twoPairs
-                          >>~ onePair
+                          >>~ threeKind False
+                          >>~ twoPairs False
+                          >>~ onePair False
                           >>~ highestCard
 
 -- Result post-processing
@@ -95,19 +95,22 @@ evalHands (Hand hc  op  tp  tk  s  f  fh  fk  sf  rf )
 blankHand :: Hand
 blankHand = Hand (-1) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing False
 
-onePair :: [Card] -> PokerHand
-onePair cs = (cs, blankHand { opVal = getGrp 1 2 cs })
+onePair :: ConsumeCards -> [Card] -> PokerHand
+onePair rmCs cs = (remainingCs, blankHand { opVal = highestNum })
+  where (remainingCs, highestNum) = getGrp rmCs 1 2 cs
 
-twoPairs :: [Card] -> PokerHand
-twoPairs cs = let maybeFstGrpNum = getGrp 1 2 cs
-                  updatedCs = case maybeFstGrpNum of
-                                   Nothing -> cs
-                                   Just fstGrpNum -> removeFirstNBy (\c -> fst c == fstGrpNum) 2 cs
-                  maybeSndGrpNum = getGrp 1 2 updatedCs
-              in (cs, blankHand { tpVal = liftM2 (,) maybeFstGrpNum maybeSndGrpNum })
+twoPairs :: ConsumeCards -> [Card] -> PokerHand
+twoPairs rmCs cs = let (fstCs, fstHand) = returnp cs >>~ onePair True
+                       (sndCs, sndHand) = returnp fstCs >>~ onePair True
 
-threeKind :: [Card] -> PokerHand
-threeKind cs = (cs, blankHand { tkVal = getGrp 1 3 cs })
+                       remainingCs = if rmCs then sndCs else cs
+                       Hand { opVal = fstHandOp } = fstHand
+                       Hand { opVal = sndHandOp } = sndHand
+                   in (remainingCs, blankHand { tpVal = (,) <$> fstHandOp <*> sndHandOp })
+
+threeKind :: ConsumeCards -> [Card] -> PokerHand
+threeKind rmCs cs = (remainingCs, blankHand { tkVal = highestNum })
+  where (remainingCs, highestNum) = getGrp rmCs 1 3 cs
 
 straight :: [Card] -> PokerHand
 straight [] = ([], blankHand)
@@ -124,11 +127,13 @@ flush cs = case sameSuit cs of
                 False -> (cs, blankHand)
 
 fullHouse :: [Card] -> PokerHand
-fullHouse cs = let (cs', Hand { tkVal = tk, opVal = op }) = returnp cs >>~ threeKind >>~ onePair
-               in (cs', blankHand { fhVal = (,) <$> tk <*> op })
+fullHouse cs = let (cs', Hand { tkVal = tk, opVal = op })
+                    = returnp cs >>~ (threeKind True) >>~ (onePair True)
+               in (cs, blankHand { fhVal = (,) <$> tk <*> op })
 
-fourKind :: [Card] -> PokerHand
-fourKind cs = (cs, blankHand { fkVal = getGrp 1 4 cs })
+fourKind :: ConsumeCards -> [Card] -> PokerHand
+fourKind rmCs cs = (remainingCs, blankHand { fkVal = highestNum })
+  where (remainingCs, highestNum) = getGrp rmCs 1 4 cs
 
 straightFlush :: [Card] -> PokerHand
 straightFlush cs = let (cs', Hand { fVal = f, sVal = s }) = returnp cs >>~ flush >>~ straight
